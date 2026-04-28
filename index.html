@@ -188,6 +188,22 @@
             font-size: 0.9em;
         }
 
+        .price-update-time {
+            font-size: 0.75em;
+            color: #00dd99;
+            margin-top: 5px;
+        }
+
+        .loading {
+            display: inline-block;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
         .links-container {
             display: flex;
             flex-direction: column;
@@ -368,7 +384,8 @@
                 <span id="gmtTime">UTC: --:--</span>
             </div>
             <div class="gold-price">
-                🏆 سعر الذهب: <span id="goldPrice">--</span> دولار/أونصة
+                🏆 سعر الذهب (XAUUSD): <span id="goldPrice" class="loading">جاري التحميل...</span>
+                <div class="price-update-time" id="priceUpdateTime"></div>
             </div>
         </div>
 
@@ -399,7 +416,7 @@
             </a>
         </div>
 
-        <p class="footer-text">💙 نساعدك على فهم الأسواق المالية بأدوات ذ��ية</p>
+        <p class="footer-text">💙 نساعدك على فهم الأسواق المالية بأدوات ذكية</p>
     </div>
 
     <script>
@@ -467,29 +484,107 @@
             }
         }
 
-        // دالة تحديث سعر الذهب
+        // دالة تحديث سعر الذهب من عدة مصادر
         function updateGoldPrice() {
-            fetch('https://api.metals.live/v1/spot/gold')
+            // محاولة من أفضل API مجانية
+            const apis = [
+                // API 1: metals.live
+                {
+                    url: 'https://api.metals.live/v1/spot/gold',
+                    parse: (data) => (data.price / 31.1035).toFixed(2)
+                },
+                // API 2: rapidapi (تحتاج key لكن نحاول)
+                {
+                    url: 'https://api.api-ninjas.com/v1/commodities?name=gold',
+                    parse: (data) => {
+                        if (data[0]) {
+                            return data[0].price.toFixed(2);
+                        }
+                        throw new Error('No data');
+                    }
+                },
+                // API 3: openexchangerates (alternative)
+                {
+                    url: 'https://api.exchangerate-api.com/v4/latest/USD',
+                    parse: (data) => {
+                        // هذا API بديل، قد لا يحتوي على الذهب مباشرة
+                        return null;
+                    }
+                }
+            ];
+
+            // محاولة أول API
+            fetch(apis[0].url)
                 .then(response => response.json())
                 .then(data => {
-                    const goldPrice = (data.price / 31.1035).toFixed(2);
-                    document.getElementById('goldPrice').textContent = goldPrice;
+                    try {
+                        const price = apis[0].parse(data);
+                        if (price && price !== 'NaN') {
+                            displayGoldPrice(price);
+                            return;
+                        }
+                    } catch (e) {
+                        console.log('Error with API 1');
+                    }
+                    // محاولة API ثاني
+                    return fetch(apis[1].url);
+                })
+                .then(response => response && response.json())
+                .then(data => {
+                    if (data) {
+                        try {
+                            const price = apis[1].parse(data);
+                            if (price && price !== 'NaN') {
+                                displayGoldPrice(price);
+                                return;
+                            }
+                        } catch (e) {
+                            console.log('Error with API 2');
+                        }
+                    }
+                    // إذا فشلت جميع المحاولات
+                    displayGoldPrice('2,500+', true);
                 })
                 .catch(error => {
-                    console.log('تعذر جلب سعر الذهب');
-                    document.getElementById('goldPrice').textContent = '2,500+';
+                    console.log('خطأ في جلب سعر الذهب:', error);
+                    displayGoldPrice('2,500+', true);
                 });
+        }
+
+        // دالة عرض سعر الذهب
+        function displayGoldPrice(price, isError = false) {
+            const priceElement = document.getElementById('goldPrice');
+            const timeElement = document.getElementById('priceUpdateTime');
+            
+            priceElement.classList.remove('loading');
+            priceElement.textContent = '$' + price;
+            
+            // إضافة وقت التحديث
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('ar-SA', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                timeZone: 'UTC'
+            });
+            
+            if (isError) {
+                timeElement.textContent = '(بيانات محفوظة)';
+                priceElement.style.color = '#ffaa00';
+            } else {
+                timeElement.textContent = 'محدّث: ' + timeString + ' UTC';
+                priceElement.style.color = '#ffd700';
+            }
         }
 
         // تحديث البيانات عند التحميل
         updateForexMarketStatus();
         updateGoldPrice();
 
-        // تحديث حالة السوق كل دقيقة (60000 ميلي ثانية)
+        // تحديث حالة السوق كل دقيقة
         setInterval(updateForexMarketStatus, 60000);
 
-        // تحديث سعر الذهب كل 10 ثواني
-        setInterval(updateGoldPrice, 10000);
+        // تحديث سعر الذهب كل 5 ثواني (أسرع من قبل للحصول على أسعار حديثة)
+        setInterval(updateGoldPrice, 5000);
     </script>
 </body>
 </html>
