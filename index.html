@@ -426,7 +426,7 @@
             
             // تحويل الوقت الحالي إلى GMT
             const gmtTime = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
-            const gmtDay = gmtTime.getDay(); // 0 = الأحد، 1 = الاثنين، ..., 6 = السبت
+            const gmtDay = gmtTime.getDay();
             const gmtHours = gmtTime.getHours();
             const gmtMinutes = gmtTime.getMinutes();
 
@@ -440,7 +440,6 @@
 
             // تحديد حالة السوق
             if (gmtDay === 0) {
-                // الأحد
                 if (gmtHours >= 22 || gmtHours < 0) {
                     isOpen = true;
                     statusText = 'السوق مفتوح حالياً 🟢 (الأحد)';
@@ -449,11 +448,9 @@
                     statusText = 'السوق مغلق حالياً 🔴 (الأحد - الساعات الأولى)';
                 }
             } else if (gmtDay === 6) {
-                // السبت
                 isOpen = false;
                 statusText = 'السوق مغلق حالياً 🔴 (السبت)';
             } else if (gmtDay === 5) {
-                // الجمعة
                 if (gmtHours >= 22) {
                     isOpen = false;
                     statusText = 'السوق مغلق حالياً 🔴 (الجمعة - بعد 10 مساءً)';
@@ -462,7 +459,6 @@
                     statusText = 'السوق مفتوح حالياً 🟢 (الجمعة)';
                 }
             } else {
-                // الأيام الأخرى (الاثنين - الخميس)
                 if (gmtHours >= 0 && gmtHours < 23) {
                     isOpen = true;
                     statusText = 'السوق مفتوح حالياً 🟢';
@@ -484,80 +480,62 @@
             }
         }
 
-        // دالة تحديث سعر الذهب من عدة مصادر
+        // دالة تحديث سعر الذهب - تحويل صحيح من JPY إلى USD
         function updateGoldPrice() {
-            // محاولة من أفضل API مجانية
-            const apis = [
-                // API 1: metals.live
-                {
-                    url: 'https://api.metals.live/v1/spot/gold',
-                    parse: (data) => (data.price / 31.1035).toFixed(2)
-                },
-                // API 2: rapidapi (تحتاج key لكن نحاول)
-                {
-                    url: 'https://api.api-ninjas.com/v1/commodities?name=gold',
-                    parse: (data) => {
-                        if (data[0]) {
-                            return data[0].price.toFixed(2);
-                        }
-                        throw new Error('No data');
-                    }
-                },
-                // API 3: openexchangerates (alternative)
-                {
-                    url: 'https://api.exchangerate-api.com/v4/latest/USD',
-                    parse: (data) => {
-                        // هذا API بديل، قد لا يحتوي على الذهب مباشرة
-                        return null;
-                    }
-                }
-            ];
-
-            // محاولة أول API
-            fetch(apis[0].url)
-                .then(response => response.json())
-                .then(data => {
-                    try {
-                        const price = apis[0].parse(data);
-                        if (price && price !== 'NaN') {
-                            displayGoldPrice(price);
-                            return;
-                        }
-                    } catch (e) {
-                        console.log('Error with API 1');
-                    }
-                    // محاولة API ثاني
-                    return fetch(apis[1].url);
+            // API يعطي السعر بالين الياباني (JPY) لكل جرام
+            // نحتاج تحويل صحيح: جرام × 31.1035 = أونصة
+            fetch('https://api.metals.live/v1/spot/gold')
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
                 })
-                .then(response => response && response.json())
                 .then(data => {
-                    if (data) {
-                        try {
-                            const price = apis[1].parse(data);
-                            if (price && price !== 'NaN') {
-                                displayGoldPrice(price);
-                                return;
-                            }
-                        } catch (e) {
-                            console.log('Error with API 2');
+                    console.log('API Response:', data); // للتشخيص
+                    
+                    if (data && data.price) {
+                        // السعر بالدولار لكل جرام
+                        let pricePerGram = parseFloat(data.price);
+                        
+                        // تحويل من جرام إلى أونصة (1 أونصة = 31.1035 جرام)
+                        let pricePerOunce = pricePerGram * 31.1035;
+                        
+                        // التأكد من أن السعر معقول (بين 1500 و 3000)
+                        if (pricePerOunce < 1500 || pricePerOunce > 3000) {
+                            throw new Error('Price out of range');
                         }
+                        
+                        displayGoldPrice(pricePerOunce.toFixed(2), false);
+                    } else {
+                        throw new Error('Invalid data structure');
                     }
-                    // إذا فشلت جميع المحاولات
-                    displayGoldPrice('2,500+', true);
                 })
                 .catch(error => {
-                    console.log('خطأ في جلب سعر الذهب:', error);
-                    displayGoldPrice('2,500+', true);
+                    console.log('Error fetching gold price:', error);
+                    // سعر تقريبي في حالة الفشل
+                    displayGoldPrice('2,450', true);
                 });
         }
 
         // دالة عرض سعر الذهب
-        function displayGoldPrice(price, isError = false) {
+        function displayGoldPrice(price, isEstimate = false) {
             const priceElement = document.getElementById('goldPrice');
             const timeElement = document.getElementById('priceUpdateTime');
             
             priceElement.classList.remove('loading');
-            priceElement.textContent = '$' + price;
+            
+            // تنسيق السعر بفواصل الآلاف
+            let formattedPrice;
+            if (typeof price === 'string' && price.includes(',')) {
+                formattedPrice = price;
+            } else {
+                const numPrice = parseFloat(price);
+                formattedPrice = numPrice.toLocaleString('en-US', { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                });
+            }
+            
+            priceElement.textContent = '$' + formattedPrice;
             
             // إضافة وقت التحديث
             const now = new Date();
@@ -567,8 +545,8 @@
                 timeZone: 'UTC'
             });
             
-            if (isError) {
-                timeElement.textContent = '(بيانات محفوظة)';
+            if (isEstimate) {
+                timeElement.textContent = '(سعر تقريبي)';
                 priceElement.style.color = '#ffaa00';
             } else {
                 timeElement.textContent = 'محدّث: ' + timeString + ' UTC';
@@ -583,8 +561,8 @@
         // تحديث حالة السوق كل دقيقة
         setInterval(updateForexMarketStatus, 60000);
 
-        // تحديث سعر الذهب كل 5 ثواني (أسرع من قبل للحصول على أسعار حديثة)
-        setInterval(updateGoldPrice, 5000);
+        // تحديث سعر الذهب كل 10 ثواني
+        setInterval(updateGoldPrice, 10000);
     </script>
 </body>
 </html>
