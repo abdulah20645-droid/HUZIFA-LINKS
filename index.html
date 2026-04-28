@@ -480,39 +480,71 @@
             }
         }
 
-        // دالة تحديث سعر الذهب - تحويل صحيح من JPY إلى USD
+        // دالة تحديث سعر الذهب من Yahoo Finance API
         function updateGoldPrice() {
-            // API يعطي السعر بالين الياباني (JPY) لكل جرام
-            // نحتاج تحويل صحيح: جرام × 31.1035 = أونصة
-            fetch('https://api.metals.live/v1/spot/gold')
+            // محاولة من Yahoo Finance (API 1)
+            fetch('https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=1m&range=1d')
                 .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
+                    if (!response.ok) throw new Error('API 1 failed');
                     return response.json();
                 })
                 .then(data => {
-                    console.log('API Response:', data); // للتشخيص
-                    
-                    if (data && data.price) {
-                        // السعر بالدولار لكل جرام
-                        let pricePerGram = parseFloat(data.price);
-                        
-                        // تحويل من جرام إلى أونصة (1 أونصة = 31.1035 جرام)
-                        let pricePerOunce = pricePerGram * 31.1035;
-                        
-                        // التأكد من أن السعر معقول (بين 1500 و 3000)
-                        if (pricePerOunce < 1500 || pricePerOunce > 3000) {
-                            throw new Error('Price out of range');
+                    try {
+                        const price = data.chart.result[0].meta.regularMarketPrice;
+                        if (price && price > 1000 && price < 10000) {
+                            displayGoldPrice(price.toFixed(2), false);
+                            return;
                         }
-                        
-                        displayGoldPrice(pricePerOunce.toFixed(2), false);
-                    } else {
-                        throw new Error('Invalid data structure');
+                    } catch (e) {
+                        console.log('Error parsing API 1:', e);
                     }
+                    throw new Error('Invalid price from API 1');
                 })
                 .catch(error => {
-                    console.log('Error fetching gold price:', error);
-                    // سعر تقريبي في حالة الفشل
-                    displayGoldPrice('2,450', true);
+                    console.log('API 1 failed, trying API 2...');
+                    
+                    // محاولة من Coingecko (API 2) - للذهب
+                    return fetch('https://api.coingecko.com/api/v3/simple/price?ids=gold&vs_currencies=usd')
+                        .then(response => response.json())
+                        .then(data => {
+                            try {
+                                const price = data.gold.usd;
+                                if (price && price > 1000 && price < 10000) {
+                                    displayGoldPrice(price.toFixed(2), false);
+                                    return;
+                                }
+                            } catch (e) {
+                                console.log('Error parsing API 2:', e);
+                            }
+                            throw new Error('Invalid price from API 2');
+                        })
+                        .catch(error => {
+                            console.log('API 2 failed, trying API 3...');
+                            
+                            // محاولة من Metals.live (API 3) مع التحويل الصحيح
+                            return fetch('https://api.metals.live/v1/spot/gold')
+                                .then(response => response.json())
+                                .then(data => {
+                                    try {
+                                        if (data && data.price) {
+                                            // السعر يأتي بالدولار لكل أونصة مباشرة
+                                            const price = parseFloat(data.price);
+                                            if (price > 1000 && price < 10000) {
+                                                displayGoldPrice(price.toFixed(2), false);
+                                                return;
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.log('Error parsing API 3:', e);
+                                    }
+                                    throw new Error('Invalid price from API 3');
+                                })
+                                .catch(error => {
+                                    console.log('All APIs failed');
+                                    // سعر تقريبي في حالة فشل جميع المحاولات
+                                    displayGoldPrice('4,599', true);
+                                });
+                        });
                 });
         }
 
@@ -561,8 +593,8 @@
         // تحديث حالة السوق كل دقيقة
         setInterval(updateForexMarketStatus, 60000);
 
-        // تحديث سعر الذهب كل 10 ثواني
-        setInterval(updateGoldPrice, 10000);
+        // تحديث سعر الذهب كل 5 ثواني
+        setInterval(updateGoldPrice, 5000);
     </script>
 </body>
 </html>
